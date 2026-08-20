@@ -44,9 +44,7 @@ import {
  * `SuggestionItem[]` - Static suggestions array.
  */
 export type ChatSuggestions =
-  | "auto"
-  | "manual"
-  | Omit<Suggestion, "isLoading">[];
+  "auto" | "manual" | Omit<Suggestion, "isLoading">[];
 
 export interface AppendMessageOptions {
   /**
@@ -618,12 +616,17 @@ export function useCopilotChatInternal({
         return message;
       }
 
-      const lazyRendered = lazyToolRendered(message, allMessages);
-      if (lazyRendered) {
-        const renderedGenUi = lazyRendered();
-        if (renderedGenUi) {
-          return { ...message, generativeUI: () => renderedGenUi };
-        }
+      const lazyRenderers = lazyToolRendered(message, allMessages) ?? [];
+      const renderedToolCalls = lazyRenderers
+        .map((lazyRenderer) => lazyRenderer())
+        .filter((renderedToolCall) => renderedToolCall !== null);
+      if (renderedToolCalls.length) {
+        const renderedGenUi = createElement(
+          React.Fragment,
+          null,
+          ...renderedToolCalls,
+        );
+        return { ...message, generativeUI: () => renderedGenUi };
       }
 
       const bridgeRenderer =
