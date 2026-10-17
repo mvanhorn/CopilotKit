@@ -379,11 +379,12 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
+      expect(callArgs.system).toBeUndefined();
       expect(callArgs.messages).toHaveLength(1);
       expect(callArgs.messages[0].role).toBe("user");
     });
 
-    it("should prepend system message with config prompt", async () => {
+    it("should pass the config prompt through the system option", async () => {
       const agent = new BasicAgent({
         model: "openai/gpt-4o",
         prompt: "You are a helpful assistant.",
@@ -405,14 +406,12 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
-      expect(callArgs.messages).toHaveLength(2);
-      expect(callArgs.messages[0]).toMatchObject({
-        role: "system",
-        content: "You are a helpful assistant.",
-      });
+      expect(callArgs.system).toBe("You are a helpful assistant.");
+      expect(callArgs.messages).toHaveLength(1);
+      expect(callArgs.messages[0].role).toBe("user");
     });
 
-    it("should include context in system message", async () => {
+    it("should include context in the system option", async () => {
       const agent = new BasicAgent({
         model: "openai/gpt-4o",
       });
@@ -436,16 +435,16 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
-      const systemMessage = callArgs.messages[0];
-      expect(systemMessage.role).toBe("system");
-      expect(systemMessage.content).toContain("Context from the application");
-      expect(systemMessage.content).toContain("User Name");
-      expect(systemMessage.content).toContain("John Doe");
-      expect(systemMessage.content).toContain("Location");
-      expect(systemMessage.content).toContain("New York");
+      const systemMessage = callArgs.system as string;
+      expect(systemMessage).toContain("Context from the application");
+      expect(systemMessage).toContain("User Name");
+      expect(systemMessage).toContain("John Doe");
+      expect(systemMessage).toContain("Location");
+      expect(systemMessage).toContain("New York");
+      expect(callArgs.messages).toHaveLength(0);
     });
 
-    it("should include state in system message", async () => {
+    it("should include state in the system option", async () => {
       const agent = new BasicAgent({
         model: "openai/gpt-4o",
       });
@@ -466,16 +465,16 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
-      const systemMessage = callArgs.messages[0];
-      expect(systemMessage.role).toBe("system");
-      expect(systemMessage.content).toContain("Application State");
-      expect(systemMessage.content).toContain("AGUISendStateSnapshot");
-      expect(systemMessage.content).toContain("AGUISendStateDelta");
-      expect(systemMessage.content).toContain('"counter": 0');
-      expect(systemMessage.content).toContain('"items"');
+      const systemMessage = callArgs.system as string;
+      expect(systemMessage).toContain("Application State");
+      expect(systemMessage).toContain("AGUISendStateSnapshot");
+      expect(systemMessage).toContain("AGUISendStateDelta");
+      expect(systemMessage).toContain('"counter": 0');
+      expect(systemMessage).toContain('"items"');
+      expect(callArgs.messages).toHaveLength(0);
     });
 
-    it("should combine prompt, context, and state", async () => {
+    it("should combine prompt, context, and state in the system option", async () => {
       const agent = new BasicAgent({
         model: "openai/gpt-4o",
         prompt: "You are helpful.",
@@ -488,7 +487,22 @@ describe("BasicAgent", () => {
       const input: RunAgentInput = {
         threadId: "thread1",
         runId: "run1",
-        messages: [],
+        messages: [
+          { id: "1", role: "user", content: "Hello" },
+          {
+            id: "2",
+            role: "assistant",
+            content: "Hi",
+            toolCalls: [
+              {
+                id: "tc-1",
+                type: "function",
+                function: { name: "lookup", arguments: "{}" },
+              },
+            ],
+          },
+          { id: "3", role: "tool", toolCallId: "tc-1", content: "done" },
+        ],
         tools: [],
         context: [{ description: "Context", value: "Data" }],
         state: { value: 1 },
@@ -497,13 +511,12 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
-      const systemMessage = callArgs.messages[0];
-      expect(systemMessage.content).toContain("You are helpful.");
-      expect(systemMessage.content).toContain("Context from the application");
-      expect(systemMessage.content).toContain("Application State");
+      const systemContent = callArgs.system as string;
+      expect(systemContent).toContain("You are helpful.");
+      expect(systemContent).toContain("Context from the application");
+      expect(systemContent).toContain("Application State");
 
       // Check order: prompt, then context, then state
-      const systemContent = systemMessage.content as string;
       const promptIndex = systemContent.indexOf("You are helpful.");
       const contextIndex = systemContent.indexOf(
         "Context from the application",
@@ -512,6 +525,11 @@ describe("BasicAgent", () => {
 
       expect(promptIndex).toBeLessThan(contextIndex);
       expect(contextIndex).toBeLessThan(stateIndex);
+      expect(callArgs.messages?.map((message) => message.role)).toEqual([
+        "user",
+        "assistant",
+        "tool",
+      ]);
     });
   });
 
@@ -680,7 +698,7 @@ describe("BasicAgent", () => {
       expect(callArgs.messages[2].role).toBe("user");
     });
 
-    it("should place config prompt before forwarded system/developer messages", async () => {
+    it("should keep the config prompt in system alongside forwarded messages", async () => {
       const agent = new BasicAgent({
         model: "openai/gpt-4o",
         prompt: "You are a helpful assistant.",
@@ -708,21 +726,17 @@ describe("BasicAgent", () => {
       await collectEvents(agent["run"](input));
 
       const callArgs = vi.mocked(streamText).mock.calls[0][0];
-      // Config prompt is prepended as first system message
-      expect(callArgs.messages).toHaveLength(4);
+      expect(callArgs.system).toBe("You are a helpful assistant.");
+      expect(callArgs.messages).toHaveLength(3);
       expect(callArgs.messages[0]).toMatchObject({
-        role: "system",
-        content: "You are a helpful assistant.",
-      });
-      expect(callArgs.messages[1]).toMatchObject({
         role: "system",
         content: "System instruction",
       });
-      expect(callArgs.messages[2]).toMatchObject({
+      expect(callArgs.messages[1]).toMatchObject({
         role: "system",
         content: "Developer hint",
       });
-      expect(callArgs.messages[3].role).toBe("user");
+      expect(callArgs.messages[2].role).toBe("user");
     });
   });
 

@@ -198,9 +198,15 @@ describe("BuiltInAgent learned skills", () => {
     });
     await collectEvents(agent.run(createDefaultInput()));
     const params = vi.mocked(streamText).mock.calls[0][0];
-    expect(JSON.stringify(params.messages)).toContain("Host rules");
-    expect(JSON.stringify(params.messages)).toContain("refund-policy");
-    expect(JSON.stringify(params.messages)).not.toContain("30 days");
+    const system = params.system as string;
+    expect(system.startsWith("Host rules\n\n")).toBe(true);
+    expect(system).toContain("refund-policy");
+    expect(system.indexOf("Host rules")).toBeLessThan(
+      system.indexOf("refund-policy"),
+    );
+    expect(system).not.toContain("30 days");
+    expect(JSON.stringify(params.messages)).not.toContain("Host rules");
+    expect(JSON.stringify(params.messages)).not.toContain("refund-policy");
     expect(
       await execute(params.tools!, "copilotkit_read_skill_file", {
         skill_name: "refund-policy",
@@ -221,6 +227,9 @@ describe("BuiltInAgent learned skills", () => {
       await collectEvents(agent.run(createDefaultInput()));
       const params = vi.mocked(streamText).mock.calls[0][0];
       expect(params.tools).not.toHaveProperty("copilotkit_load_skill");
+      expect(String(params.system ?? "")).not.toContain(
+        "copilotkit_learned_skills",
+      );
       expect(JSON.stringify(params.messages)).not.toContain(
         "copilotkit_learned_skills",
       );
